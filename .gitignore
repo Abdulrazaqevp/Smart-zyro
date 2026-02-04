@@ -1,0 +1,13 @@
+# Environment variables
+.env
+.env.txt
+
+# Database
+storage.db
+
+# Uploaded media
+media/
+
+# Python cache
+__pycache__/
+*.pyc
