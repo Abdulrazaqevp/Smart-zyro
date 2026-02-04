@@ -2,7 +2,7 @@ from pathlib import Path
 import os
 import sqlite3
 from dotenv import load_dotenv
-
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder,
@@ -54,6 +54,17 @@ def get_files(user_id, file_type):
     rows = cur.fetchall()
     conn.close()
     return [r[0] for r in rows]
+
+
+def delete_button(file_type, file_id):
+    keyboard = [[
+        InlineKeyboardButton(
+            "❌ Delete",
+            callback_data=f"delete|{file_type}|{file_id}"
+        )
+    ]]
+    return InlineKeyboardMarkup(keyboard)
+
 
 # ------------------ UI ------------------
 def main_menu():
@@ -108,27 +119,45 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ------------------ MEDIA SEND ------------------
 async def send_documents(update: Update, context: ContextTypes.DEFAULT_TYPE):
     files = get_files(update.message.from_user.id, "document")
+
     if not files:
         await update.message.reply_text("📂 No documents found.")
         return
-    for f in files:
-        await update.message.reply_document(f)
+
+    for file_id in files:
+        await update.message.reply_document(
+            document=file_id,
+            reply_markup=delete_button("document", file_id)
+        )
+
 
 async def send_photos(update: Update, context: ContextTypes.DEFAULT_TYPE):
     files = get_files(update.message.from_user.id, "photo")
+
     if not files:
         await update.message.reply_text("🖼️ No photos found.")
         return
-    for f in files:
-        await update.message.reply_photo(f)
+
+    for file_id in files:
+        await update.message.reply_photo(
+            photo=file_id,
+            reply_markup=delete_button("photo", file_id)
+        )
+
 
 async def send_videos(update: Update, context: ContextTypes.DEFAULT_TYPE):
     files = get_files(update.message.from_user.id, "video")
+
     if not files:
         await update.message.reply_text("🎥 No videos found.")
         return
-    for f in files:
-        await update.message.reply_video(f)
+
+    for file_id in files:
+        await update.message.reply_video(
+            video=file_id,
+            reply_markup=delete_button("video", file_id)
+        )
+
 
 # ------------------ MENU HANDLER ------------------
 async def handle_menu_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -167,10 +196,38 @@ async def handle_menu_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 
+async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    data = query.data
+    user_id = query.from_user.id
+
+    # Step 1: User clicked ❌ Delete
+    if data.startswith("delete|"):
+        _, file_type, file_id = data.split("|")
+
+        await query.message.reply_text(
+            "⚠️ Are you sure you want to delete this file?",
+            reply_markup=confirm_delete_buttons(file_type, file_id)
+        )
+
+    # Step 2: User confirmed ✅ Yes
+    elif data.startswith("confirm|"):
+        _, file_type, file_id = data.split("|")
+
+        delete_single_file(user_id, file_type, file_id)
+
+        await query.message.reply_text("🗑️ File deleted successfully.")
+
+    # Step 3: User cancelled ❌ No
+    elif data == "cancel":
+        await query.message.reply_text("❎ Delete cancelled.")
 
 
 
-
+from telegram.ext import CallbackQueryHandler
+    
 
 # ------------------ APP ------------------
 def main():
@@ -182,6 +239,7 @@ def main():
     app.add_handler(CommandHandler("help", help_cmd))
     app.add_handler(MessageHandler(filters.Document.ALL | filters.PHOTO | filters.VIDEO, handle_media))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_menu_click))
+    app.add_handler(CallbackQueryHandler(handle_callback))
 
 
 
@@ -200,6 +258,32 @@ def delete_files(user_id, file_type):
 
     conn.commit()
     conn.close()
+
+def confirm_delete_buttons(file_type, file_id):
+    keyboard = [[
+        InlineKeyboardButton(
+            "✅ Yes",
+            callback_data=f"confirm|{file_type}|{file_id}"
+        ),
+        InlineKeyboardButton(
+            "❌ No",
+            callback_data="cancel"
+        )
+    ]]
+    return InlineKeyboardMarkup(keyboard)
+
+def delete_single_file(user_id, file_type, file_id):
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+
+    cur.execute(
+        "DELETE FROM files WHERE user_id=? AND file_type=? AND file_id=?",
+        (user_id, file_type, file_id)
+    )
+
+    conn.commit()
+    conn.close()
+
 
 
 
