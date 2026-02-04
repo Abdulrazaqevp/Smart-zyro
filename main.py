@@ -60,9 +60,12 @@ def main_menu():
     keyboard = [
         ["📄 My Documents", "🖼️ My Photos"],
         ["🎥 My Videos"],
+        ["🗑️ Delete Documents", "🗑️ Delete Photos"],
+        ["🗑️ Delete Videos"],
         ["ℹ️ Help"]
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+
 
 # ------------------ COMMANDS ------------------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -130,16 +133,44 @@ async def send_videos(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ------------------ MENU HANDLER ------------------
 async def handle_menu_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
+    user_id = update.message.from_user.id
+
     if text == "📄 My Documents":
         await send_documents(update, context)
+
     elif text == "🖼️ My Photos":
         await send_photos(update, context)
+
     elif text == "🎥 My Videos":
         await send_videos(update, context)
+
+    elif text == "🗑️ Delete Documents":
+        delete_files(user_id, "document")
+        await update.message.reply_text("🗑️ All documents deleted.")
+
+    elif text == "🗑️ Delete Photos":
+        delete_files(user_id, "photo")
+        await update.message.reply_text("🗑️ All photos deleted.")
+
+    elif text == "🗑️ Delete Videos":
+        delete_files(user_id, "video")
+        await update.message.reply_text("🗑️ All videos deleted.")
+
     elif text == "ℹ️ Help":
         await help_cmd(update, context)
+
     else:
-        await update.message.reply_text("❓ Use the menu below.", reply_markup=main_menu())
+        await update.message.reply_text(
+            "❓ Use the menu below.",
+            reply_markup=main_menu()
+        )
+
+
+
+
+
+
+
 
 # ------------------ APP ------------------
 def main():
@@ -152,8 +183,25 @@ def main():
     app.add_handler(MessageHandler(filters.Document.ALL | filters.PHOTO | filters.VIDEO, handle_media))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_menu_click))
 
+
+
+
     print("✅ Bot is running...")
     app.run_polling()
+
+def delete_files(user_id, file_type):
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+
+    cur.execute(
+        "DELETE FROM files WHERE user_id=? AND file_type=?",
+        (user_id, file_type)
+    )
+
+    conn.commit()
+    conn.close()
+
+
 
 if __name__ == "__main__":
     main()
