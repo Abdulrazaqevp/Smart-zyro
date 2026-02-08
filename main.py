@@ -45,25 +45,26 @@ def save_file(user_id, file_type, file_id):
     conn.close()
 
 def get_files(user_id, file_type):
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-    cur.execute(
-        "SELECT file_id FROM files WHERE user_id=? AND file_type=?",
-        (user_id, file_type)
+    res = (
+        supabase.table("files")
+        .select("id, file_id")
+        .eq("user_id", user_id)
+        .eq("file_type", file_type)
+        .execute()
     )
-    rows = cur.fetchall()
-    conn.close()
-    return [r[0] for r in rows]
+    return res.data  # list of dicts: {id, file_id}
 
 
-def delete_button(file_type, file_id):
+
+def delete_button(db_id):
     keyboard = [[
         InlineKeyboardButton(
             "❌ Delete",
-            callback_data=f"delete|{file_type}|{file_id}"
+            callback_data=f"delete|{db_id}"
         )
     ]]
     return InlineKeyboardMarkup(keyboard)
+
 
 
 # ------------------ UI ------------------
@@ -117,46 +118,47 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg.reply_text("🎥 Video saved")
 
 # ------------------ MEDIA SEND ------------------
-async def send_documents(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    files = get_files(update.message.from_user.id, "document")
-
-    if not files:
+async def send_documents(update, context):
+    rows = get_files(update.message.from_user.id, "document")
+    if not rows:
         await update.message.reply_text("📂 No documents found.")
         return
 
-    for file_id in files:
+    for row in rows:
         await update.message.reply_document(
-            document=file_id,
-            reply_markup=delete_button("document", file_id)
+            document=row["file_id"],
+            reply_markup=delete_button(row["id"])
         )
 
 
-async def send_photos(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    files = get_files(update.message.from_user.id, "photo")
 
-    if not files:
+async def send_photos(update, context):
+    rows = get_files(update.message.from_user.id, "photo")
+    if not rows:
         await update.message.reply_text("🖼️ No photos found.")
         return
 
-    for file_id in files:
+    for row in rows:
         await update.message.reply_photo(
-            photo=file_id,
-            reply_markup=delete_button("photo", file_id)
+            photo=row["file_id"],
+            reply_markup=delete_button(row["id"])
         )
+
 
 
 async def send_videos(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    files = get_files(update.message.from_user.id, "video")
+    rows = get_files(update.message.from_user.id, "video")
 
-    if not files:
+    if not rows:
         await update.message.reply_text("🎥 No videos found.")
         return
 
-    for file_id in files:
+    for row in rows:
         await update.message.reply_video(
-            video=file_id,
-            reply_markup=delete_button("video", file_id)
+            video=row["file_id"],
+            reply_markup=delete_button(row["id"])
         )
+
 
 
 # ------------------ MENU HANDLER ------------------
@@ -199,30 +201,28 @@ async def handle_menu_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-
-    data = query.data
     user_id = query.from_user.id
+    data = query.data
 
-    # Step 1: User clicked ❌ Delete
     if data.startswith("delete|"):
-        _, file_type, file_id = data.split("|")
+        db_id = int(data.split("|")[1])
 
         await query.message.reply_text(
             "⚠️ Are you sure you want to delete this file?",
-            reply_markup=confirm_delete_buttons(file_type, file_id)
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("✅ Yes", callback_data=f"confirm|{db_id}"),
+                InlineKeyboardButton("❌ No", callback_data="cancel")
+            ]])
         )
 
-    # Step 2: User confirmed ✅ Yes
     elif data.startswith("confirm|"):
-        _, file_type, file_id = data.split("|")
-
-        delete_single_file(user_id, file_type, file_id)
-
+        db_id = int(data.split("|")[1])
+        delete_single_file(user_id, db_id)
         await query.message.reply_text("🗑️ File deleted successfully.")
 
-    # Step 3: User cancelled ❌ No
     elif data == "cancel":
         await query.message.reply_text("❎ Delete cancelled.")
+
 
 
 
@@ -272,17 +272,13 @@ def confirm_delete_buttons(file_type, file_id):
     ]]
     return InlineKeyboardMarkup(keyboard)
 
-def delete_single_file(user_id, file_type, file_id):
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
+def delete_single_file(user_id, db_id):
+    supabase.table("files")\
+        .delete()\
+        .eq("id", db_id)\
+        .eq("user_id", user_id)\
+        .execute()
 
-    cur.execute(
-        "DELETE FROM files WHERE user_id=? AND file_type=? AND file_id=?",
-        (user_id, file_type, file_id)
-    )
-
-    conn.commit()
-    conn.close()
 
 
 
