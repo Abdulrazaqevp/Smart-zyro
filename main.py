@@ -70,10 +70,7 @@ def delete_button(db_id):
 # ------------------ UI ------------------
 def main_menu():
     keyboard = [
-        ["📄 My Documents", "🖼️ My Photos"],
-        ["🎥 My Videos"],
-        ["🗑️ Delete Documents", "🗑️ Delete Photos"],
-        ["🗑️ Delete Videos"],
+        ["📚 Semester 1", "📚 Semester 2"],
         ["ℹ️ Help"]
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
@@ -100,99 +97,49 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=main_menu()
     )
 
-# ------------------ MEDIA SAVE (Telegram storage) ------------------
-async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    msg = update.message
-    user_id = msg.from_user.id
-
-    if msg.document:
-        save_file(user_id, "document", msg.document.file_id)
-        await msg.reply_text("📄 Document saved")
-
-    elif msg.photo:
-        save_file(user_id, "photo", msg.photo[-1].file_id)
-        await msg.reply_text("🖼️ Photo saved")
-
-    elif msg.video:
-        save_file(user_id, "video", msg.video.file_id)
-        await msg.reply_text("🎥 Video saved")
-
-# ------------------ MEDIA SEND ------------------
-async def send_documents(update, context):
-    rows = get_files(update.message.from_user.id, "document")
-    if not rows:
-        await update.message.reply_text("📂 No documents found.")
-        return
-
-    for row in rows:
-        await update.message.reply_document(
-            document=row["file_id"],
-            reply_markup=delete_button(row["id"])
-        )
-
-
-
-async def send_photos(update, context):
-    rows = get_files(update.message.from_user.id, "photo")
-    if not rows:
-        await update.message.reply_text("🖼️ No photos found.")
-        return
-
-    for row in rows:
-        await update.message.reply_photo(
-            photo=row["file_id"],
-            reply_markup=delete_button(row["id"])
-        )
-
-
-
-async def send_videos(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    rows = get_files(update.message.from_user.id, "video")
-
-    if not rows:
-        await update.message.reply_text("🎥 No videos found.")
-        return
-
-    for row in rows:
-        await update.message.reply_video(
-            video=row["file_id"],
-            reply_markup=delete_button(row["id"])
-        )
-
 
 
 # ------------------ MENU HANDLER ------------------
 async def handle_menu_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
-    user_id = update.message.from_user.id
 
-    if text == "📄 My Documents":
-        await send_documents(update, context)
+    if text == "📚 Semester 1":
+        await update.message.reply_text(
+            "📚 Semester 1 Subjects:",
+            reply_markup=ReplyKeyboardMarkup(
+                [
+                    ["📖 Maths", "📖 Physics"],
+                    ["📖 Chemistry"],
+                    ["⬅ Back"]
+                ],
+                resize_keyboard=True
+            )
+        )
 
-    elif text == "🖼️ My Photos":
-        await send_photos(update, context)
+    elif text == "📚 Semester 2":
+        await update.message.reply_text(
+            "📚 Semester 2 Subjects:",
+            reply_markup=ReplyKeyboardMarkup(
+                [
+                    ["📖 Data Structures", "📖 Electronics"],
+                    ["⬅ Back"]
+                ],
+                resize_keyboard=True
+            )
+        )
 
-    elif text == "🎥 My Videos":
-        await send_videos(update, context)
-
-    elif text == "🗑️ Delete Documents":
-        delete_files(user_id, "document")
-        await update.message.reply_text("🗑️ All documents deleted.")
-
-    elif text == "🗑️ Delete Photos":
-        delete_files(user_id, "photo")
-        await update.message.reply_text("🗑️ All photos deleted.")
-
-    elif text == "🗑️ Delete Videos":
-        delete_files(user_id, "video")
-        await update.message.reply_text("🗑️ All videos deleted.")
+    elif text == "⬅ Back":
+        await update.message.reply_text(
+            "⬅ Back to main menu",
+            reply_markup=main_menu()
+        )
 
     elif text == "ℹ️ Help":
         await help_cmd(update, context)
 
     else:
         await update.message.reply_text(
-            "❓ Use the menu below.",
+            "Please choose from menu.",
             reply_markup=main_menu()
         )
 
@@ -231,13 +178,11 @@ from telegram.ext import CallbackQueryHandler
 
 # ------------------ APP ------------------
 def main():
-    init_db()
 
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_cmd))
-    app.add_handler(MessageHandler(filters.Document.ALL | filters.PHOTO | filters.VIDEO, handle_media))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_menu_click))
     app.add_handler(CallbackQueryHandler(handle_callback))
 
