@@ -1,231 +1,229 @@
 from pathlib import Path
 import os
-import sqlite3
+
 from dotenv import load_dotenv
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-from telegram import Update, ReplyKeyboardMarkup
+from telegram import ReplyKeyboardMarkup, Update
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
-    MessageHandler,
     ContextTypes,
+    MessageHandler,
     filters,
 )
 
-# ------------------ ENV ------------------
+ADMIN_ID = 5293211699  # 👈 your Telegram user 
+upload_state = {}
 env_path = Path(__file__).parent / ".env"
 load_dotenv(dotenv_path=env_path)
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
-# ------------------ DATABASE ------------------
-DB_PATH = "storage.db"
-
-def init_db():
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS files (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER,
-            file_type TEXT,
-            file_id TEXT
-        )
-    """)
-    conn.commit()
-    conn.close()
-
-def save_file(user_id, file_type, file_id):
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-    cur.execute(
-        "INSERT INTO files (user_id, file_type, file_id) VALUES (?, ?, ?)",
-        (user_id, file_type, file_id)
-    )
-    conn.commit()
-    conn.close()
-
-def get_files(user_id, file_type):
-    res = (
-        supabase.table("files")
-        .select("id, file_id")
-        .eq("user_id", user_id)
-        .eq("file_type", file_type)
-        .execute()
-    )
-    return res.data  # list of dicts: {id, file_id}
+MENU_SEMESTER_1 = "📚 Semester 1"
+MENU_SEMESTER_2 = "📚 Semester 2"
+MENU_HELP = "ℹ️ Help"
+MENU_BACK = "⬅ Back"
 
 
-
-def delete_button(db_id):
-    keyboard = [[
-        InlineKeyboardButton(
-            "❌ Delete",
-            callback_data=f"delete|{db_id}"
-        )
-    ]]
-    return InlineKeyboardMarkup(keyboard)
-
-
-
-# ------------------ UI ------------------
 def main_menu():
     keyboard = [
-        ["📚 Semester 1", "📚 Semester 2"],
-        ["ℹ️ Help"]
+        [MENU_SEMESTER_1, MENU_SEMESTER_2],
+        [MENU_HELP],
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
 
-# ------------------ COMMANDS ------------------
+def semester_1_menu():
+    keyboard = [
+        ["📖 Maths", "📖 Physics"],
+        ["📖 MDF"],
+        [MENU_BACK],
+    ]
+    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+
+
+def semester_2_menu():
+    keyboard = [
+        ["📖 Data Structures", "📖 Electronics"],
+        [MENU_BACK],
+    ]
+    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "👋 Welcome!\n\n"
-        "Send me documents, photos, or videos.\n"
-        "I’ll save them safely for you.\n\n"
-        "👇 Use the menu below:",
-        reply_markup=main_menu()
+        "Welcome!\n\nSelect semester to get lecture notes.",
+        reply_markup=main_menu(),
     )
+
 
 async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "ℹ️ *Help*\n\n"
-        "📄 My Documents – get your documents\n"
-        "🖼️ My Photos – get your photos\n"
-        "🎥 My Videos – get your videos\n\n"
-        "📤 Just send files to save them.",
-        parse_mode="Markdown",
-        reply_markup=main_menu()
+        "Choose a semester, then choose a subject to get its notes.\n\n"
+        "If a subject says notes are not uploaded yet, add a real Telegram file_id for it in NOTES.",
+        reply_markup=main_menu(),
     )
 
 
+async def get_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.message.document:
+        await update.message.reply_text("Send a document file to get its file ID.")
+        return
 
-# ------------------ MENU HANDLER ------------------
+    file_id = update.message.document.file_id
+    await update.message.reply_text(f"FILE ID:\n{file_id}")
+
+def save_note(subject, file_id):
+    supabase.table("files").insert({
+        "subject": subject,
+        "file_id": file_id
+    }).execute()
+
+
+def get_notes(subject):
+    res = supabase.table("files")\
+        .select("file_id")\
+        .eq("subject", subject)\
+        .execute()
+
+    return [row["file_id"] for row in res.data]
+
+def delete_notes(subject):
+    supabase.table("files")\
+        .delete()\
+        .eq("subject", subject)\
+        .execute()
+
+async def send_subject_notes(update, text):
+    files = get_notes(text)
+
+    if not files:
+        await update.message.reply_text("📂 Notes not uploaded yet.")
+        return
+
+    await update.message.reply_text(f"📚 Sending notes for {text}...")
+
+    for file_id in files:
+        await update.message.reply_document(file_id)
+
+
+
 async def handle_menu_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
 
-    if text == "📚 Semester 1":
+    if text == MENU_SEMESTER_1:
         await update.message.reply_text(
-            "📚 Semester 1 Subjects:",
-            reply_markup=ReplyKeyboardMarkup(
-                [
-                    ["📖 Maths", "📖 Physics"],
-                    ["📖 Chemistry"],
-                    ["⬅ Back"]
-                ],
-                resize_keyboard=True
-            )
+            "Semester 1 Subjects:",
+            reply_markup=semester_1_menu(),
         )
+        return
 
-    elif text == "📚 Semester 2":
+    if text == MENU_SEMESTER_2:
         await update.message.reply_text(
-            "📚 Semester 2 Subjects:",
-            reply_markup=ReplyKeyboardMarkup(
-                [
-                    ["📖 Data Structures", "📖 Electronics"],
-                    ["⬅ Back"]
-                ],
-                resize_keyboard=True
-            )
+            "Semester 2 Subjects:",
+            reply_markup=semester_2_menu(),
         )
+        return
 
-    elif text == "⬅ Back":
+    if text == MENU_BACK:
         await update.message.reply_text(
-            "⬅ Back to main menu",
-            reply_markup=main_menu()
+            "Back to main menu.",
+            reply_markup=main_menu(),
         )
+        return
 
-    elif text == "ℹ️ Help":
+    if text == MENU_HELP:
         await help_cmd(update, context)
+        return
 
-    else:
-        await update.message.reply_text(
-            "Please choose from menu.",
-            reply_markup=main_menu()
-        )
+    if text in NOTES:
+        await send_subject_notes(update, text)
+        return
 
+    await update.message.reply_text(
+        "Please choose from the menu.",
+        reply_markup=main_menu(),
+    )
 
+#--------DELETE---------------
 
-async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    user_id = query.from_user.id
-    data = query.data
+async def delete_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.from_user.id
 
-    if data.startswith("delete|"):
-        db_id = int(data.split("|")[1])
+    if user_id != ADMIN_ID:
+        await update.message.reply_text("❌ Not authorized.")
+        return
 
-        await query.message.reply_text(
-            "⚠️ Are you sure you want to delete this file?",
-            reply_markup=InlineKeyboardMarkup([[
-                InlineKeyboardButton("✅ Yes", callback_data=f"confirm|{db_id}"),
-                InlineKeyboardButton("❌ No", callback_data="cancel")
-            ]])
-        )
+    if not context.args:
+        await update.message.reply_text("Usage: /delete Maths")
+        return
 
-    elif data.startswith("confirm|"):
-        db_id = int(data.split("|")[1])
-        delete_single_file(user_id, db_id)
-        await query.message.reply_text("🗑️ File deleted successfully.")
+    subject = f"📖 {' '.join(context.args)}"
 
-    elif data == "cancel":
-        await query.message.reply_text("❎ Delete cancelled.")
+    if subject not in NOTES:
+        await update.message.reply_text("❌ Subject not found.")
+        return
 
+    delete_notes(subject)
 
+    await update.message.reply_text(f"🗑️ All files deleted for {subject}")
 
 
-from telegram.ext import CallbackQueryHandler
-    
 
-# ------------------ APP ------------------
+#-------------Upload-----------
+
+async def upload_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.from_user.id
+
+    if user_id != ADMIN_ID:
+        await update.message.reply_text("❌ Not authorized.")
+        return
+
+    if not context.args:
+        await update.message.reply_text("Usage: /upload MDF")
+        return
+
+    subject = " ".join(context.args)
+    upload_state[user_id] = subject
+
+    await update.message.reply_text(f"📤 Send file for {subject}")
+
+
+#----------ADMIN---------------
+async def handle_admin_upload(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.from_user.id
+
+    if user_id not in upload_state:
+        return
+
+    subject = f"📖 {upload_state[user_id]}"
+
+    if update.message.document:
+        file_id = update.message.document.file_id
+
+        if subject not in NOTES:
+            NOTES[subject] = []
+
+        save_note(subject, file_id)
+
+        await update.message.reply_text("✅ File added successfully!")
+
+        del upload_state[user_id]
+
 def main():
+    if not BOT_TOKEN:
+        raise ValueError("BOT_TOKEN is missing from the .env file.")
 
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_cmd))
+    app.add_handler(CommandHandler("getid", get_id))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_menu_click))
-    app.add_handler(CallbackQueryHandler(handle_callback))
+    app.add_handler(CommandHandler("upload", upload_cmd))
+    app.add_handler(MessageHandler(filters.Document.ALL, handle_admin_upload))
+    app.add_handler(CommandHandler("delete", delete_cmd))
 
-
-
-
-    print("✅ Bot is running...")
+    print("Bot is running...")
     app.run_polling()
-
-def delete_files(user_id, file_type):
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-
-    cur.execute(
-        "DELETE FROM files WHERE user_id=? AND file_type=?",
-        (user_id, file_type)
-    )
-
-    conn.commit()
-    conn.close()
-
-def confirm_delete_buttons(file_type, file_id):
-    keyboard = [[
-        InlineKeyboardButton(
-            "✅ Yes",
-            callback_data=f"confirm|{file_type}|{file_id}"
-        ),
-        InlineKeyboardButton(
-            "❌ No",
-            callback_data="cancel"
-        )
-    ]]
-    return InlineKeyboardMarkup(keyboard)
-
-def delete_single_file(user_id, db_id):
-    supabase.table("files")\
-        .delete()\
-        .eq("id", db_id)\
-        .eq("user_id", user_id)\
-        .execute()
-
-
-
 
 
 if __name__ == "__main__":
